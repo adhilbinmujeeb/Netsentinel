@@ -1,0 +1,608 @@
+NETSENTINEL: NETWORK ATTACK DETECTION AND SECURITY AUDITING TOOL
+
+A Project Report
+
+Submitted by: [YOUR FULL NAME]
+Roll / Registration No.: [YOUR NUMBER]
+Programme: [YOUR PROGRAMME, e.g. B.Tech / BCA / B.Sc. Computer Science]
+Institution: [YOUR COLLEGE]
+Guide: [GUIDE NAME]
+Academic Year: [YEAR]
+Related course: [SWAYAM COURSE NAME]
+
+
+CERTIFICATE / DECLARATION
+
+I hereby declare that this project report titled "NetSentinel: Network Attack Detection and Security Auditing Tool" is the result of my own work carried out under the guidance of [GUIDE NAME]. All sources used have been acknowledged in the References section. All experiments were carried out on files generated on my own machine or in an isolated laboratory environment, and no third-party network was scanned or attacked.
+
+Signature: ______________        Date: ____________
+
+
+ABSTRACT
+
+Reconnaissance and flooding activity are usually the earliest observable steps of a network attack. Enterprise intrusion detection systems such as Snort and Suricata detect them well, but they are large, complex to configure, and hard to study in an academic setting. This project presents NetSentinel, a small, readable, rule-based network attack detection and auditing tool written in Python. NetSentinel reads TCP/IP traffic from PCAP files or from a live interface and applies three sliding-window detection modules: port scan detection, SYN burst detection, and repeated connection attempt detection. Each finding is assigned a severity, a numeric risk score, supporting evidence and a recommended countermeasure, and is exported as CSV, JSON or a PDF audit report.
+
+The tool was evaluated on 120 labelled PCAP files (294,914 packets) covering normal traffic, heavy but legitimate traffic, port scans, SYN floods, repeated SSH connection attempts and a deliberately slow evasive scan. With default thresholds, all 60 simulated core attacks were detected (detection rate 100 percent) with no false positives on the 200 negative cases. Mean detection delay was 0.14 seconds for port scans, 0.34 seconds for SYN bursts and 9.15 seconds for repeated connection attempts. A slow scan sending one probe every 12 seconds evaded the default 10-second window in all 20 runs, which is an inherent limitation of fixed-window rules and is analysed in the report. A threshold sensitivity analysis shows the trade-off between detection rate and false positive rate for every module. The detection engine processes roughly 100,000 packets per second on a single core.
+
+Keywords: network security, intrusion detection, port scan, SYN flood, Scapy, PCAP analysis, rule-based detection
+
+
+TABLE OF CONTENTS
+
+1. Introduction
+2. Literature Review
+3. System Analysis
+4. System Design
+5. Implementation
+6. Testing and Experimental Setup
+7. Results and Discussion
+8. Countermeasures
+9. Conclusion and Future Scope
+References
+Appendix A: Source code overview and usage
+Appendix B: Sample tool output
+
+
+==============================================================
+CHAPTER 1: INTRODUCTION
+==============================================================
+
+1.1 Background
+
+Almost every network attack begins with information gathering. An attacker who wants to compromise a host first needs to learn which hosts are alive, which TCP ports are open and which services are running. This phase is called reconnaissance, and in the Lockheed Martin Cyber Kill Chain it is the first stage of an intrusion. Other attacks, such as SYN flooding, aim to exhaust the resources of a server by sending a very large number of connection requests. Password guessing against remote services such as SSH appears on the network as a large number of repeated connection attempts to one service.
+
+All three behaviours leave a measurable footprint in network traffic: a particular kind of TCP packet (a SYN without an ACK) appears in unusual numbers, towards unusual numbers of ports, or at an unusual rate. A defender who can count these packets in sliding time windows can detect the behaviour without inspecting packet payloads.
+
+1.2 Problem statement
+
+Production intrusion detection systems are powerful but opaque for a student: their rule languages, preprocessors and deployment requirements hide the underlying detection logic. There is a need for a compact tool whose detection algorithms can be read, explained, measured and modified within a single project, and whose results can be evaluated against ground truth.
+
+1.3 Objectives
+
+1. Capture or import network traffic for security analysis.
+2. Identify suspicious network behaviour using explicit, configurable, rule-based detection.
+3. Classify detected events by severity and assign a risk score.
+4. Generate a security audit report containing evidence of each event.
+5. Recommend countermeasures for each type of event.
+6. Evaluate the tool experimentally using detection rate, false positive rate and detection delay.
+
+1.4 Scope and limitations of scope
+
+NetSentinel analyses IPv4 TCP traffic. It detects three behaviours. It does not perform prevention (it never changes firewall rules), it does not inspect encrypted payloads, it does not analyse wireless (IEEE 802.11) frames, and it does not use machine learning. These exclusions are deliberate: they keep the project achievable in the available time and keep every detection decision explainable.
+
+1.5 Ethical considerations
+
+Scanning or flooding networks without permission is illegal in most jurisdictions. All experiments in this project used synthetic PCAP files that were generated by writing packets to disk only. No packet was transmitted on any network during the main evaluation. Any live validation must be done against your own machine or an isolated laboratory network.
+
+1.6 Report organisation
+
+Chapter 2 reviews related work. Chapter 3 analyses requirements. Chapter 4 presents the design. Chapter 5 describes the implementation. Chapter 6 describes the testing methodology. Chapter 7 reports and discusses results. Chapter 8 lists countermeasures. Chapter 9 concludes.
+
+
+==============================================================
+CHAPTER 2: LITERATURE REVIEW
+==============================================================
+
+2.1 Intrusion detection systems
+
+An intrusion detection system (IDS) monitors network or host activity for malicious behaviour or policy violations. NIST Special Publication 800-94 classifies detection methods as signature-based (matching known patterns), anomaly-based (deviation from a learned baseline) and stateful protocol analysis. Network-based IDS (NIDS) observe traffic at one or more points in the network, while host-based IDS (HIDS) observe a single machine.
+
+2.2 Existing tools
+
+Snort, introduced by Roesch, is a lightweight rule-driven NIDS that pioneered the open rule-language approach. Bro (now Zeek), introduced by Paxson, takes a different approach: it converts traffic into high-level events and runs scripts over them, which makes behavioural detection such as scan detection natural. Suricata is a modern multi-threaded engine with a Snort-compatible rule format. These tools are the reference point for NetSentinel, but they are far larger than a student project can reproduce, and NetSentinel does not claim to compete with them.
+
+2.3 Port scan detection
+
+A port scan probes many ports on one or more hosts to find open services. Nmap's default SYN scan (-sS) sends a SYN to each port and interprets the reply: SYN-ACK means open, RST means closed. Jung et al. proposed detecting scans with sequential hypothesis testing, observing that scanners fail connections far more often than legitimate clients. Simpler detectors, like the one in this project, count distinct destination ports within a time window. This is easy to explain and implement, but a patient attacker can slow the scan to stay under the window, which is demonstrated experimentally in Chapter 7.
+
+2.4 SYN flooding
+
+In the TCP three-way handshake (RFC 793) a server that receives a SYN allocates state and replies with a SYN-ACK, then waits for the final ACK. In a SYN flood the attacker sends many SYNs, often with spoofed source addresses, and never completes the handshake, filling the server's half-open connection table. RFC 4987 describes the attack and common mitigations such as SYN cookies, increased backlog, and filtering. Rate-based detection per destination is the standard network-level indicator.
+
+2.5 Repeated connection attempts and brute force
+
+Brute-force attacks against SSH or similar services produce many connection attempts from one source to one service. Network-level counting can reveal the pattern, but it cannot tell whether authentication succeeded or failed, which requires application or authentication logs. Tools such as fail2ban combine log analysis with firewall actions.
+
+2.6 Research gap addressed by this project
+
+The surveyed tools are either heavyweight (Snort, Zeek, Suricata) or are one-off scripts with no evaluation. This project provides a small transparent tool, together with a repeatable evaluation methodology (labelled datasets, confusion matrices, detection delay, and threshold sensitivity), which is the part student projects most often lack.
+
+
+==============================================================
+CHAPTER 3: SYSTEM ANALYSIS
+==============================================================
+
+3.1 Existing system
+
+Organisations without a dedicated security team often rely on router logs, firewall counters or manual use of Wireshark. These approaches do not raise alerts automatically, do not classify severity and do not produce audit-ready reports.
+
+3.2 Proposed system
+
+NetSentinel is a command-line tool that automates detection of three attack behaviours and produces a structured audit report.
+
+3.3 Functional requirements
+
+FR1. Read packets from a PCAP file.
+FR2. Optionally capture packets live from a network interface.
+FR3. Detect port scanning, SYN bursts and repeated connection attempts.
+FR4. Allow thresholds and time windows to be configured without editing code.
+FR5. Allow trusted source IP addresses to be whitelisted.
+FR6. Assign severity and a risk score to every finding.
+FR7. Suppress duplicate alerts for one continuous attack episode.
+FR8. Export findings as CSV, JSON and PDF.
+FR9. Provide a recommended countermeasure for each finding.
+
+3.4 Non-functional requirements
+
+NFR1. Explainability: every alert must be traceable to a simple numeric rule.
+NFR2. Performance: process at least tens of thousands of packets per second on a typical laptop.
+NFR3. Portability: pure Python 3 with Scapy; runs on Fedora Linux without special set-up.
+NFR4. Safety: the tool is passive and never sends packets or modifies firewall rules.
+NFR5. Testability: the detection engine is independent from the packet capture library, so it can be unit tested with synthetic events.
+
+3.5 Hardware and software requirements
+
+Hardware: any computer with 4 GB RAM or more.
+Software: Fedora Linux (or any Linux), Python 3.9 or later, Scapy, ReportLab, Matplotlib, Nmap and Wireshark/tcpdump (for optional real-traffic validation).
+
+3.6 Feasibility
+
+Technical: all libraries are open source and available through pip or dnf. Economic: no cost. Schedule: the plan fits in 25 days, as the work is divided into packet processing, detection, testing and reporting. Legal and ethical: addressed by the passive design and the isolated-lab policy.
+
+
+==============================================================
+CHAPTER 4: SYSTEM DESIGN
+==============================================================
+
+4.1 Architecture
+
+The tool has four layers:
+
+   Network traffic input (PCAP file or live interface)
+                    |
+                    v
+   Packet processing (extract timestamp, source IP, destination IP, destination port, TCP flags)
+                    |
+                    v
+   Detection engine (three sliding-window modules)
+        - Port scan module
+        - SYN burst module
+        - Repeated connection module
+                    |
+                    v
+   Risk assessment (severity, risk score, evidence, countermeasure)
+                    |
+                    v
+   Reporting (console, CSV, JSON, PDF)
+
+4.2 Design decision: rule-based rather than machine learning
+
+Rule-based detection was chosen because (a) every alert can be explained by a single inequality, (b) it needs no training data, (c) thresholds can be tuned and the effect of each tuning can be reported, and (d) it is realistic for the project timeframe. The disadvantage is that attackers who know the thresholds can stay below them, which is evaluated in Chapter 7.
+
+4.3 Design decision: pure SYN packets only
+
+All modules count only "pure SYN" packets: the SYN flag is set and the ACK flag is clear. These are the packets that begin a connection. SYN-ACK packets (server replies) and ACK packets (the remainder of normal conversations) are ignored. This keeps normal handshake traffic from inflating counts, and it makes the detectors insensitive to the volume of legitimate established connections.
+
+4.4 Detection modules
+
+Module 1: Port scan detection
+ Key: (source IP, destination IP)
+ Window: 10 seconds
+ State: a queue of (timestamp, destination port) and a counter of ports in the window
+ Rule: alert when the number of distinct destination ports is at least 15
+ Severity: High
+
+Module 2: SYN burst detection
+ Key: destination IP
+ Window: 5 seconds
+ State: a queue of timestamps
+ Rule: alert when the number of SYN packets is at least 100
+ Severity: High
+ Note: because the key is the destination, floods that use many spoofed source addresses are still detected, which a per-source counter would miss.
+
+Module 3: Repeated connection attempt detection
+ Key: (source IP, destination IP, destination port)
+ Window: 30 seconds
+ State: a queue of timestamps
+ Rule: alert when the number of SYN packets is at least 20
+ Severity: Medium
+ Note: this detects a network pattern, not failed logins.
+
+The thresholds are experimental starting values, not universal standards. They are configurable and are justified by the sensitivity analysis in Chapter 7.
+
+4.5 Sliding window algorithm
+
+For each new SYN packet at time t, the packet is appended to the relevant queue, entries older than t minus the window length are removed from the front, and the rule is evaluated. Each packet is added once and removed once, so the amortised cost per packet is constant. For the port scan module a counter of ports in the window is maintained incrementally so that the number of distinct ports is available in constant time. (An early version of the implementation rebuilt a set of all ports for every packet. This made evaluation of high-rate scans unacceptably slow and was replaced by the incremental counter; see Section 5.4.)
+
+4.6 Episode merging
+
+A continuing attack would cross the threshold on every subsequent packet. To produce one finding per attack episode, if a new threshold crossing for the same key occurs within one window length of the last crossing, the existing finding is extended (its end time and peak observed value are updated) instead of creating a new finding. A new finding is only created after a quiet period longer than the window.
+
+4.7 Risk score
+
+risk = min(100, round(50 x observed / threshold))
+
+A finding that only just reaches the threshold scores 50. A finding at twice the threshold or more scores 100. The score uses the peak value observed during the episode.
+
+4.8 Data flow summary
+
+Input packet -> filter IPv4/TCP -> filter pure SYN -> whitelist check -> three module updates -> findings list -> finalisation (evidence text, duration) -> report writers.
+
+4.9 Report design
+
+Console: one line per finding.
+CSV: start time, type, severity, risk score, source, target, evidence, duration, countermeasure.
+JSON: statistics, top SYN sources, configuration used and full findings (for later processing).
+PDF: summary table, top SYN sources, findings table, countermeasure section and a disclaimer that findings are indicators and not proof.
+
+
+==============================================================
+CHAPTER 5: IMPLEMENTATION
+==============================================================
+
+5.1 Technology stack
+
+Python 3: main language. Scapy: packet capture and PCAP reading, packet crafting for the test-data generator. ReportLab: PDF generation. Matplotlib: charts. Pandas is not required by the final implementation. Nmap and Wireshark: optional real-traffic validation.
+
+5.2 Project files
+
+netsentinel.py          Detection engine, PCAP and live input, CSV/JSON/PDF reporting, command line interface.
+generate_traffic.py     Generates 120 labelled PCAP files in six scenarios (writes files only; never transmits).
+run_experiments.py      Runs the tool over all files, computes metrics, sensitivity analysis and charts.
+test_netsentinel.py     Ten unit tests of the detection engine.
+README.txt              Installation and usage.
+
+5.3 The detector class
+
+The Detector class receives parsed packet fields (timestamp, source, destination, destination port, flags) through a single process() method. It does not depend on Scapy, so the same logic is used for PCAP analysis, live capture, unit tests and the evaluation harness. This separation (parsing outside, detection inside) is the main structural decision of the implementation, and it is what made the unit tests and fast experiments possible.
+
+Core of the pure SYN test:
+
+   def is_pure_syn(flags):
+       flags = int(flags)
+       return bool(flags & 0x02) and not (flags & 0x10)
+
+Core of a sliding-window rule (SYN burst):
+
+   q = self.burst[dst]
+   q.append(ts)
+   while q and ts - q[0] > window:
+       q.popleft()
+   if len(q) >= threshold:
+       raise_alert(...)
+
+5.4 Performance fix: incremental distinct-port counting
+
+The first implementation of the port scan module computed the number of unique ports with a set comprehension over the whole window for every packet. When the evaluation harness replayed high-rate scans (1,000 packets per second over a 10-second window), the work per packet became proportional to the window size and a full experiment run exceeded the five-minute execution limit. Replacing the set comprehension with a counter that is updated when packets enter and leave the window reduced the full experiment on 294,914 packets to a few seconds. This is a good example of algorithmic complexity affecting a security tool in practice, and it is documented here because it also affects live use: a detector that falls behind on a flood is useless exactly when it is needed.
+
+5.5 Memory management
+
+Per-key queues are removed periodically (every 50,000 packets) when they have been idle for longer than the largest window, which keeps memory bounded on long captures.
+
+5.6 Input modes
+
+PCAP mode uses Scapy's PcapReader, which streams packets one at a time rather than loading the file. Live mode uses Scapy's sniff() with store disabled and prints an alert line as soon as a new finding appears. Live mode requires root privileges. In this project live mode was verified to start, run and exit cleanly on the loopback interface; the quantitative evaluation was performed on PCAP files (see Section 6.7 for the plan for real-traffic validation).
+
+5.7 Command line usage
+
+   python3 netsentinel.py capture.pcap
+   python3 netsentinel.py capture.pcap --csv out.csv --json out.json --pdf out.pdf
+   python3 netsentinel.py capture.pcap --config thresholds.json --whitelist 192.168.1.1
+   sudo python3 netsentinel.py --live eth0 --duration 60 --pdf live_report.pdf
+
+A configuration file overrides only the keys it contains, for example:
+
+   {"port_scan": {"threshold": 25, "window": 10}}
+
+5.8 Unit tests
+
+Ten unit tests verify: a scan above threshold is detected; just below threshold is not; SYN-ACK packets are ignored; a spoofed multi-source flood is detected; repeated connections report the right target; one episode gives one finding while a later episode gives a second; whitelisted sources are ignored; a slow scan evades the default window; the risk score scales; and configuration overrides work. All tests pass.
+
+
+==============================================================
+CHAPTER 6: TESTING AND EXPERIMENTAL SETUP
+==============================================================
+
+6.1 Why synthetic PCAPs
+
+The main evaluation uses synthetic PCAP files for three reasons. First, ground truth is known exactly (which attack, when it started), which makes true and false positives unambiguous. Second, experiments are repeatable using a fixed random seed. Third, nothing is transmitted on any network, so there is no risk of disrupting or attacking a real system. The disadvantage is that synthetic traffic is simpler than real traffic, which is discussed in Section 7.8.
+
+6.2 Test scenarios
+
+Each scenario was generated 20 times with different random parameters (seed 1337), giving 120 PCAP files containing 294,914 packets in total.
+
+Scenario        Description                                                          Expected detector
+normal          5 to 10 clients, each making 3 to 12 complete handshakes             none
+                to common service ports over 60 seconds
+busy_benign     as normal, plus one heavy but legitimate client making               none
+                8 to 14 connections to the same HTTPS server
+portscan        SYN scan of 20 to 1,000 random ports at 50, 200 or 1,000           port scan
+                packets per second, with SYN-ACK replies from open ports
+synburst        SYNs to port 80 at 100 to 3,000 packets per second, lasting        SYN burst
+                5, 8 or 15 seconds, from a single source (8 runs) or from
+                random spoofed sources (12 runs)
+bruteforce      25 to 120 connection attempts to SSH (port 22) at 1 to 5            repeated connections
+                attempts per second
+slowscan        40 ports probed at one probe every 12 seconds (evasion test)       port scan (expected miss)
+
+All attack scenarios also contain the background normal traffic, so that detectors must separate the attack from legitimate traffic in the same file.
+
+6.3 Metrics
+
+For each detection module, each core PCAP is one test case. A case is positive for a module if that module's attack is present in the file.
+
+   TP: attack present and module raised a finding
+   FN: attack present and module did not raise a finding
+   FP: attack absent and module raised a finding
+   TN: attack absent and module raised no finding
+
+   Detection Rate (DR) = TP / (TP + FN) x 100
+   False Positive Rate (FPR) = FP / (FP + TN) x 100
+   Precision = TP / (TP + FP) x 100
+
+Detection delay: the time between the first attack packet and the first finding of the expected type (taken from packet timestamps, not wall clock).
+
+Throughput: packets processed per second by the detection engine, measured over all 120 files.
+
+6.4 Treatment of overlapping detections
+
+A fast port scan sends many SYN packets to one host, so it legitimately triggers the SYN burst rule as well. A single-source SYN flood to one port also legitimately looks like repeated connection attempts to that service. These extra findings are an inherent overlap between the rules, and they are not mistakes of the tool. They are therefore reported separately in Table 7.2 (cross-triggering) and are excluded from the false positive count of the confusion matrix. The slow scan scenario is treated as a separate evasion experiment and is not included in the core DR and FPR calculation, because it is designed to be a miss.
+
+6.5 Threshold sensitivity analysis
+
+For each module the threshold was varied over eight values with the window length fixed, and DR and FPR were recomputed on the same core files. This shows how the default value was positioned in the trade-off.
+
+6.6 Unit testing
+
+Ten unit tests (Section 5.8) test boundary behaviour independently of the datasets.
+
+6.7 Real-traffic validation (to be performed on your own machine)
+
+Because this tool is intended for real networks, the synthetic evaluation should be complemented with a small real-traffic test on Fedora, using only your own machine or an isolated lab. Suggested procedure:
+
+   sudo dnf install python3-scapy tcpdump nmap wireshark-cli
+   sudo tcpdump -i lo -w real_scan.pcap &
+   nmap -sS -p 1-1000 127.0.0.1
+   sudo pkill tcpdump
+   python3 netsentinel.py real_scan.pcap --pdf real_scan_report.pdf
+
+   Repeat for: normal browsing capture (no alert expected), a repeated SSH connection loop against your own machine, and a Scapy-generated SYN burst against your own machine.
+
+   Record the number of runs, detections and false positives in a table like Table 7.1 and add a short paragraph and screenshots of the console, the PDF report and the Wireshark view of the capture. Note that a loopback capture shows both directions of each packet; NetSentinel handles this because it counts pure SYN packets only.
+
+   Expected observation: a fast Nmap SYN scan will trigger both the port scan rule and the SYN burst rule; report this overlap rather than hiding it (see Section 6.4).
+
+[Insert your real-traffic results here when completed.]
+
+
+==============================================================
+CHAPTER 7: RESULTS AND DISCUSSION
+==============================================================
+
+7.1 Detection performance (default thresholds)
+
+Core dataset: 100 detection test cases per module (120 files minus the 20 slow scan files), with positives and negatives as in Section 6.3.
+
+Table 7.1: Confusion matrix and metrics per module
+
+Module                 TP   FN   FP   TN   DR (%)   FPR (%)   Precision (%)
+Port scan              20   0    0    80   100.0    0.0       100.0
+SYN burst              20   0    0    60   100.0    0.0       100.0
+Repeated connections   20   0    0    60   100.0    0.0       100.0
+Overall                60   0    0    200  100.0    0.0       100.0
+
+TN counts differ between modules because overlapping findings (Section 6.4) were excluded: the 20 port scan files are excluded from the SYN burst count and the 20 SYN flood files are excluded from the repeated connection count.
+
+All 60 simulated attacks were detected and no benign file produced a finding, including the busy_benign scenario in which a legitimate client opened up to 14 connections to one service (below the repeated-connection threshold of 20).
+
+7.2 Cross-triggering of modules
+
+Table 7.2: Number of runs (out of 20) in which each module raised a finding
+
+Scenario       Port scan   SYN burst   Repeated connections
+normal         0           0           0
+busy_benign    0           0           0
+portscan       20          15          0
+synburst       0           20          8
+bruteforce     0           0           20
+
+Interpretation: fast port scans cross the SYN burst threshold when they send more than 100 SYN packets to the target within five seconds (15 of 20 runs; the five runs that did not were the small scans of 20 or 50 ports). Single-source SYN floods to one port also look like repeated connection attempts (all 8 single-source runs; none of the 12 spoofed-source runs, because no single source reached 20 attempts to the service). These overlaps are reported as additional context to the analyst. They also show why severity and evidence are listed for each finding rather than a single "attack type".
+
+The average number of findings per run was 1.75 for port scans, 1.4 for SYN floods and 1.0 for repeated connections, and 0 for normal traffic. Episode merging (Section 4.6) is what keeps these numbers low: without it, a 1,000 packet per second scan would produce hundreds of alerts.
+
+7.3 Detection delay
+
+Table 7.3: Time from first attack packet to first finding (seconds)
+
+Scenario      Mean    Minimum   Maximum   Runs
+portscan      0.14    0.01      0.28      20
+synburst      0.34    0.03      0.99      20
+bruteforce    9.15    3.80      19.00     20
+
+Port scans and SYN floods are detected in well under one second because the thresholds are reached quickly at the tested packet rates. Repeated connection attempts take longer because the rule needs 20 attempts and the tested attack rates were 1 to 5 attempts per second: at one attempt per second the 20th attempt arrives after about 19 seconds, which matches the maximum observed delay. Detection delay is therefore determined by the attack rate and the threshold, and not by processing speed.
+
+7.4 Threshold sensitivity
+
+Table 7.4: Port scan module (window 10 s)
+
+Threshold (distinct ports)   3      5     8     10    15    20    30    50
+Detection rate (%)           100    100   100   100   100   100   90    90
+False positive rate (%)      77.5   0     0     0     0     0     0     0
+
+Table 7.5: SYN burst module (window 5 s)
+
+Threshold (SYN packets)      20     50    75    100   150   300   500   1000
+Detection rate (%)           100    100   100   100   100   100   100   75
+False positive rate (%)      10     0     0     0     0     0     0     0
+
+Table 7.6: Repeated connection module (window 30 s)
+
+Threshold (attempts)         5      8      10     15    20    30    50    80
+Detection rate (%)           100    100    100    100   100   95    60    20
+False positive rate (%)      33.3   33.3   23.3   0     0     0     0     0
+
+Observations:
+- Each module has a usable "plateau" in which DR is 100 percent and FPR is 0 percent. The default thresholds (15, 100, 20) lie on those plateaus.
+- Lowering thresholds too far creates false positives: a threshold of 3 distinct ports flags 77.5 percent of negative cases, because ordinary clients contact several ports; a repeated-connection threshold of 10 flags 23.3 percent of negative cases, because busy legitimate clients open many connections to one service.
+- Raising thresholds too far loses attacks. The 20-port scans are missed once the port scan threshold reaches 30; slow SSH attempts are missed once the repeated-connection threshold reaches 30, and only 20 percent of runs are detected at a threshold of 80.
+- The correct threshold therefore depends on the environment, which is why thresholds are configurable and why the analyst should measure a baseline of normal traffic before deployment.
+
+7.5 Evasion experiment: low-and-slow scan
+
+Table 7.7: Slow scan (one probe every 12 seconds, 40 ports, 20 runs)
+
+Port scan window    Slow scans detected   False positives on the 40 benign files
+10 s (default)      0 of 20               0
+600 s               20 of 20              0
+
+With the default 10-second window the slow scan evaded detection completely, because a 10-second window contains at most one probe. Extending the window to 600 seconds detected all of them with no false positives on the benign files of this dataset. The trade-off is that a long window needs more memory and is more likely to merge unrelated activity on larger networks. This confirms the limitation noted in the literature (Section 2.3) and gives a concrete recommended deployment option: run a second port scan rule with a long window and a smaller threshold, in addition to the fast-scan rule.
+
+7.6 Performance
+
+The detection engine processed 294,914 packets at about 104,500 packets per second on a single core (analysis only, after packets were parsed into memory). This is adequate for small and medium networks and for offline analysis of captures. Parsing PCAP files through Scapy is slower than the detection step itself, so for very large captures a faster parser or a capture filter such as "tcp[tcpflags] & (tcp-syn|tcp-ack) == tcp-syn" would be a sensible optimisation.
+
+7.7 Sample output
+
+Console output for a file containing a 500-port scan:
+
+   NetSentinel: 845 packets, 569 pure SYN packets analysed
+   [High  ] Port scan     192.168.1.105 -> 192.168.1.5   risk=100  500 unique destination ports probed within 10s
+   [High  ] SYN burst     192.168.1.105 -> 192.168.1.5   risk=100  500 TCP SYN packets within 5s
+   2 finding(s).
+
+Console output for 61 repeated SSH connection attempts:
+
+   [Medium] Repeated connections   192.168.1.120 -> 192.168.1.5:22   risk=100   61 connection attempts within 30s
+
+Console output for normal traffic: "0 finding(s)."
+
+For a SYN flood with spoofed sources, the "source" field shows the source of the packet that crossed the threshold, which is arbitrary when sources are spoofed. This is noted as a limitation below.
+
+7.8 Limitations
+
+1. Synthetic traffic: the benign traffic is much simpler than a real network, which contains scanners, backup jobs, load balancers and health checks. The 0 percent false positive rate should be read as "no false positives on this dataset", not as a property of the tool in general.
+2. Perfect detection reflects well-separated test scenarios: the attacks were generated with parameters comfortably above the thresholds in most cases. The sensitivity analysis (Section 7.4) shows where detection starts to fail.
+3. Fixed windows can be evaded by slow attacks (Section 7.5).
+4. Network-level counting cannot distinguish a failed login from a successful one, or a flood from a flash crowd of legitimate users. A high-severity finding must be reviewed by an analyst.
+5. SYN scans only: FIN, NULL, Xmas and UDP scans are not covered, and distributed scans from many sources against one target are not correlated.
+6. IPv6 is not supported.
+7. Source attribution is unreliable for spoofed floods.
+8. Live mode was verified to run but was not part of the quantitative evaluation.
+
+7.9 Comparison with enterprise tools
+
+NetSentinel is not a replacement for Snort, Suricata or Zeek, which provide signature databases, protocol decoding, flow tracking and tuning at scale. Its value is that the entire detection logic fits in about 360 lines and can be read, explained and measured, which is what makes it suitable for study.
+
+
+==============================================================
+CHAPTER 8: COUNTERMEASURES
+==============================================================
+
+The tool is passive and recommends countermeasures in each finding. The following explains them.
+
+8.1 Port scans
+
+- Expose only the ports that are needed; close or filter the rest using the host firewall (for example, firewalld on Fedora) or a network firewall.
+- Use default-deny inbound rules so that closed and filtered ports reveal as little as possible.
+- Rate-limit or temporarily block sources that probe many ports.
+- Monitor the scanning source for follow-up activity; a scan is often followed by targeted connection attempts (the next kill-chain stage).
+
+8.2 SYN floods
+
+- Enable SYN cookies on the server (on Linux, net.ipv4.tcp_syncookies = 1).
+- Increase the TCP backlog and reduce SYN-RECEIVED timeouts where appropriate.
+- Apply rate limiting at the firewall for new connections per source and per destination.
+- For floods with spoofed sources, request upstream filtering from the network provider; ingress filtering (RFC 2827 / BCP 38) reduces spoofing.
+- Use a content delivery network or scrubbing service for public services.
+
+8.3 Repeated connection attempts and brute force
+
+- Review the targeted service's logs (for example, /var/log/secure or the systemd journal for sshd) to determine whether authentication attempts failed.
+- Enforce key-based authentication and disable password login for SSH.
+- Apply connection rate limiting and automatic temporary bans (for example, fail2ban).
+- Restrict the service to known addresses or require a VPN.
+- Change from the default port only as a minor noise reduction measure, not as security.
+
+8.4 General practices
+
+- Keep a baseline of normal traffic so thresholds can be tuned.
+- Retain PCAP evidence of findings for later analysis.
+- Treat NetSentinel findings as indicators and confirm them before taking disruptive action. The tool intentionally never changes firewall rules automatically, because a false positive that blocks a legitimate user would itself be an outage.
+
+8.5 Relationship to the Cyber Kill Chain and security frameworks
+
+Port scans correspond to the reconnaissance stage and SYN floods and brute-force attempts to later stages (delivery and exploitation attempts, and denial of service). Detecting reconnaissance early gives defenders time to respond before exploitation. In terms of the NIST Cybersecurity Framework, NetSentinel supports the Detect function (continuous monitoring and anomaly detection) and provides evidence that supports the Respond function.
+
+
+==============================================================
+CHAPTER 9: CONCLUSION AND FUTURE SCOPE
+==============================================================
+
+9.1 Conclusion
+
+This project designed, implemented and evaluated NetSentinel, a rule-based network attack detection and auditing tool. It satisfies the stated objectives: it imports PCAP files and captures live traffic, detects three attack behaviours with configurable sliding-window rules, classifies findings with severity and risk score, produces CSV, JSON and PDF reports with countermeasures, and was evaluated against labelled data. On the evaluation dataset all 60 core attacks were detected with no false positives, detection delay was below one second for port scans and SYN bursts, and the engine processed about 100,000 packets per second. Threshold sensitivity analysis and an evasion experiment showed the limits of the approach honestly: thresholds that are too low produce false positives, thresholds that are too high miss attacks, and a slow scan evades a short window unless a long-window rule is added.
+
+9.2 Future scope
+
+- Add long-window and low-threshold rules to detect slow scans, and a combined rule that scores scans across multiple windows.
+- Detect distributed scans by correlating many sources against one target.
+- Add FIN, NULL, Xmas and UDP scan detection.
+- Add IPv6 support.
+- Correlate network findings with authentication logs to separate failed from successful brute-force attempts.
+- Add adaptive thresholds learned from a baseline of normal traffic, and compare against a statistical or machine-learning detector using the same labelled datasets.
+- Integrate with a firewall to propose (not automatically apply) block rules for analyst approval.
+- Evaluate with public labelled datasets and on larger real traffic captures.
+
+
+==============================================================
+REFERENCES
+==============================================================
+
+(Verify the details against the original sources and format them in your college's citation style before submission.)
+
+[1] J. Postel, "Transmission Control Protocol," RFC 793, IETF, 1981.
+[2] W. Eddy, "TCP SYN Flooding Attacks and Common Mitigations," RFC 4987, IETF, 2007.
+[3] P. Ferguson and D. Senie, "Network Ingress Filtering: Defeating Denial of Service Attacks which employ IP Source Address Spoofing," RFC 2827 (BCP 38), IETF, 2000.
+[4] K. Scarfone and P. Mell, "Guide to Intrusion Detection and Prevention Systems (IDPS)," NIST Special Publication 800-94, 2007.
+[5] M. Roesch, "Snort: Lightweight Intrusion Detection for Networks," Proceedings of the 13th USENIX Large Installation System Administration Conference (LISA), 1999.
+[6] V. Paxson, "Bro: A System for Detecting Network Intruders in Real-Time," Computer Networks, vol. 31, 1999.
+[7] J. Jung, V. Paxson, A. Berger and H. Balakrishnan, "Fast Portscan Detection Using Sequential Hypothesis Testing," IEEE Symposium on Security and Privacy, 2004.
+[8] E. Hutchins, M. Cloppert and R. Amin, "Intelligence-Driven Computer Network Defense Informed by Analysis of Adversary Campaigns and Intrusion Kill Chains," Lockheed Martin, 2011.
+[9] G. Lyon, "Nmap Network Scanning: The Official Nmap Project Guide to Network Discovery and Security Scanning," Nmap Project, 2009.
+[10] Scapy project documentation, https://scapy.net.
+[11] NIST, "Framework for Improving Critical Infrastructure Cybersecurity" (Cybersecurity Framework), National Institute of Standards and Technology.
+[12] [YOUR SWAYAM COURSE NAME], course material: Firewall and Packet Filters; Introduction to Windows and Linux Firewall; Cyber Security Framework; Advanced Persistent Threat and Cyber Kill Chain; Scanning for Web Vulnerabilities, Tools and HTTP Utilities.
+
+
+==============================================================
+APPENDIX A: SOURCE CODE OVERVIEW AND USAGE
+==============================================================
+
+Installation (Fedora):
+   sudo dnf install python3-scapy python3-reportlab python3-matplotlib tcpdump nmap wireshark-cli
+   (or: pip install scapy reportlab matplotlib)
+
+Reproducing the experiments:
+   python3 generate_traffic.py        creates lab_pcaps/ with 120 PCAPs and manifest.json
+   python3 run_experiments.py         prints metrics, writes results.json and two charts
+   python3 -m unittest -v test_netsentinel
+
+Main functions in netsentinel.py:
+   load_config()      merge default thresholds with a user JSON file
+   Detector           sliding-window detection engine (process() and finalize())
+   analyze_pcap()     stream a PCAP through the detector
+   analyze_live()     live capture with immediate alerts
+   write_csv(), write_json(), write_pdf()   report writers
+   main()             command line interface
+
+Default configuration:
+   port_scan:   threshold 15 distinct ports, window 10 s, severity High
+   syn_burst:   threshold 100 SYN packets, window 5 s, severity High
+   repeat_conn: threshold 20 SYN packets, window 30 s, severity Medium
+
+
+==============================================================
+APPENDIX B: SAMPLE TOOL OUTPUT
+==============================================================
+
+See the files in sample_output/: portscan.csv, portscan.json, portscan_report.pdf and synburst_report.pdf. Charts: chart_rates.png (detection and false positive rates) and chart_sensitivity.png (threshold sensitivity per module). Insert these figures in Chapter 7 of the final document.

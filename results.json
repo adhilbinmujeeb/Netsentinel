@@ -1,0 +1,240 @@
+{
+  "config": {
+    "port_scan": {
+      "threshold": 15,
+      "window": 10,
+      "severity": "High"
+    },
+    "syn_burst": {
+      "threshold": 100,
+      "window": 5,
+      "severity": "High"
+    },
+    "repeat_conn": {
+      "threshold": 20,
+      "window": 30,
+      "severity": "Medium"
+    }
+  },
+  "throughput_pps": 104518,
+  "total_packets": 294914,
+  "scenario_matrix": {
+    "portscan": {
+      "port_scan": 20,
+      "syn_burst": 15,
+      "repeat_conn": 0,
+      "runs": 20
+    },
+    "synburst": {
+      "port_scan": 0,
+      "syn_burst": 20,
+      "repeat_conn": 8,
+      "runs": 20
+    },
+    "bruteforce": {
+      "port_scan": 0,
+      "syn_burst": 0,
+      "repeat_conn": 20,
+      "runs": 20
+    }
+  },
+  "alerts_per_run_mean": {
+    "normal": 0,
+    "busy_benign": 0,
+    "portscan": 1.75,
+    "synburst": 1.4,
+    "bruteforce": 1,
+    "slowscan": 0
+  },
+  "detection_time_s": {
+    "portscan": {
+      "mean": 0.14,
+      "min": 0.01,
+      "max": 0.28,
+      "n": 20
+    },
+    "synburst": {
+      "mean": 0.34,
+      "min": 0.03,
+      "max": 0.99,
+      "n": 20
+    },
+    "bruteforce": {
+      "mean": 9.15,
+      "min": 3.8,
+      "max": 19.0,
+      "n": 20
+    }
+  },
+  "confusion": {
+    "port_scan": {
+      "TP": 20,
+      "FN": 0,
+      "FP": 0,
+      "TN": 80,
+      "DR": 100.0,
+      "FPR": 0.0,
+      "precision": 100.0
+    },
+    "syn_burst": {
+      "TP": 20,
+      "FN": 0,
+      "FP": 0,
+      "TN": 60,
+      "DR": 100.0,
+      "FPR": 0.0,
+      "precision": 100.0
+    },
+    "repeat_conn": {
+      "TP": 20,
+      "FN": 0,
+      "FP": 0,
+      "TN": 60,
+      "DR": 100.0,
+      "FPR": 0.0,
+      "precision": 100.0
+    }
+  },
+  "overall": {
+    "TP": 60,
+    "FN": 0,
+    "FP": 0,
+    "TN": 200,
+    "DR": 100.0,
+    "FPR": 0.0,
+    "precision": 100.0
+  },
+  "slowscan_detected": 0,
+  "slowscan_runs": 20,
+  "slowscan_detected_window600": 20,
+  "window600_portscan_fp_on_benign": 0,
+  "benign_runs": 40,
+  "sensitivity": {
+    "port_scan": [
+      {
+        "threshold": 3,
+        "DR": 100.0,
+        "FPR": 77.5
+      },
+      {
+        "threshold": 5,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 8,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 10,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 15,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 20,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 30,
+        "DR": 90.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 50,
+        "DR": 90.0,
+        "FPR": 0.0
+      }
+    ],
+    "syn_burst": [
+      {
+        "threshold": 20,
+        "DR": 100.0,
+        "FPR": 10.0
+      },
+      {
+        "threshold": 50,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 75,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 100,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 150,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 300,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 500,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 1000,
+        "DR": 75.0,
+        "FPR": 0.0
+      }
+    ],
+    "repeat_conn": [
+      {
+        "threshold": 5,
+        "DR": 100.0,
+        "FPR": 33.3
+      },
+      {
+        "threshold": 8,
+        "DR": 100.0,
+        "FPR": 33.3
+      },
+      {
+        "threshold": 10,
+        "DR": 100.0,
+        "FPR": 23.3
+      },
+      {
+        "threshold": 15,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 20,
+        "DR": 100.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 30,
+        "DR": 95.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 50,
+        "DR": 60.0,
+        "FPR": 0.0
+      },
+      {
+        "threshold": 80,
+        "DR": 20.0,
+        "FPR": 0.0
+      }
+    ]
+  }
+}
