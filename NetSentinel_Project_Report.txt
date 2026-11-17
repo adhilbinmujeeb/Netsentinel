@@ -1,23 +1,5 @@
 NETSENTINEL: NETWORK ATTACK DETECTION AND SECURITY AUDITING TOOL
 
-A Project Report
-
-Submitted by: [YOUR FULL NAME]
-Roll / Registration No.: [YOUR NUMBER]
-Programme: [YOUR PROGRAMME, e.g. B.Tech / BCA / B.Sc. Computer Science]
-Institution: [YOUR COLLEGE]
-Guide: [GUIDE NAME]
-Academic Year: [YEAR]
-Related course: [SWAYAM COURSE NAME]
-
-
-CERTIFICATE / DECLARATION
-
-I hereby declare that this project report titled "NetSentinel: Network Attack Detection and Security Auditing Tool" is the result of my own work carried out under the guidance of [GUIDE NAME]. All sources used have been acknowledged in the References section. All experiments were carried out on files generated on my own machine or in an isolated laboratory environment, and no third-party network was scanned or attacked.
-
-Signature: ______________        Date: ____________
-
-
 ABSTRACT
 
 Reconnaissance and flooding activity are usually the earliest observable steps of a network attack. Enterprise intrusion detection systems such as Snort and Suricata detect them well, but they are large, complex to configure, and hard to study in an academic setting. This project presents NetSentinel, a small, readable, rule-based network attack detection and auditing tool written in Python. NetSentinel reads TCP/IP traffic from PCAP files or from a live interface and applies three sliding-window detection modules: port scan detection, SYN burst detection, and repeated connection attempt detection. Each finding is assigned a severity, a numeric risk score, supporting evidence and a recommended countermeasure, and is exported as CSV, JSON or a PDF audit report.
@@ -89,7 +71,7 @@ An intrusion detection system (IDS) monitors network or host activity for malici
 
 2.2 Existing tools
 
-Snort, introduced by Roesch, is a lightweight rule-driven NIDS that pioneered the open rule-language approach. Bro (now Zeek), introduced by Paxson, takes a different approach: it converts traffic into high-level events and runs scripts over them, which makes behavioural detection such as scan detection natural. Suricata is a modern multi-threaded engine with a Snort-compatible rule format. These tools are the reference point for NetSentinel, but they are far larger than a student project can reproduce, and NetSentinel does not claim to compete with them.
+Snort, introduced by Roesch, is a lightweight rule-driven NIDS that pioneered the open rule-language approach. (dZeek), introduced by Paxson, takes a different approach: it converts traffic into high-level events and runs scripts over them, which makes behavioural detection such as scan detection natural. Suricata is a modern multi-threaded engine with a Snort-compatible rule format. These tools are the reference point for NetSentinel, but they are far larger than a student project can reproduce, and NetSentinel does not claim to compete with them.
 
 2.3 Port scan detection
 
